@@ -1,0 +1,327 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ============================================================================
+// AGENT CONFIGURATION
+// ============================================================================
+
+model Agent {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  displayName     String   @map("display_name")
+  avatarUrl       String?  @map("avatar_url")
+  systemPrompt    String   @map("system_prompt") @db.Text
+  personality     String?  @db.Text
+  llmProvider     String   @map("llm_provider")
+  llmModel        String   @map("llm_model")
+  llmTemperature  Float    @default(0.7) @map("llm_temperature")
+  llmMaxTokens    Int      @default(4096) @map("llm_max_tokens")
+  tools           String[]
+  slackBotToken   String?  @map("slack_bot_token")
+  slackAppToken   String?  @map("slack_app_token")
+  slackChannels   String[] @map("slack_channels")
+  memoryNamespace String   @unique @map("memory_namespace")
+  role            String?
+  team            String?
+  reportsTo       String?  @map("reports_to")
+  expertise       String[] @default([])
+  canDelegate     String[] @default([]) @map("can_delegate")
+  enabled         Boolean  @default(true)
+  configJson      Json?    @map("config_json")
+  containerInfo   Json?    @map("container_info") // Docker container details for dev agents
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  conversations    Conversation[]
+  memoryEntries    MemoryEntry[]
+  scheduledTasks   ScheduledTask[]
+  approvalRequests ApprovalRequest[]
+  taskQueueItems   TaskQueueItem[]
+  credentials      IntegrationCredential[]
+  hiredAgent       HiredAgent?      @relation("AgentHiring")
+
+  @@map("agents")
+}
+
+// ============================================================================
+// MEMORY SYSTEM
+// ============================================================================
+
+model Conversation {
+  id         String    @id @default(uuid())
+  agentId    String    @map("agent_id")
+  externalId String?   @map("external_id")
+  channel    String?
+  userId     String?   @map("user_id")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  endedAt    DateTime? @map("ended_at")
+  metadata   Json?
+
+  agent    Agent                 @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages ConversationMessage[]
+
+  @@index([agentId, externalId])
+  @@index([agentId, channel, userId])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id             String   @id @default(uuid())
+  conversationId String   @map("conversation_id")
+  role           String
+  content        String   @db.Text
+  toolCalls      Json?    @map("tool_calls")
+  toolCallId     String?  @map("tool_call_id")
+  tokenCount     Int?     @map("token_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("conversation_messages")
+}
+
+model MemoryEntry {
+  id           String                       @id @default(uuid())
+  agentId      String?                      @map("agent_id")
+  namespace    String
+  content      String                       @db.Text
+  summary      String?                      @db.Text
+  embedding    Unsupported("vector(1536)")?
+  memoryType   String                       @map("memory_type")
+  source       String?
+  importance   Float                        @default(0.5)
+  accessCount  Int                          @default(0) @map("access_count")
+  lastAccessed DateTime?                    @map("last_accessed")
+  tags         String[]
+  metadata     Json?
+  createdAt    DateTime                     @default(now()) @map("created_at")
+  updatedAt    DateTime                     @updatedAt @map("updated_at")
+  expiresAt    DateTime?                    @map("expires_at")
+
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([namespace])
+  @@index([agentId, namespace])
+  @@index([memoryType])
+  @@index([tags])
+  @@map("memory_entries")
+}
+
+// ============================================================================
+// ORCHESTRATION
+// ============================================================================
+
+model ScheduledTask {
+  id             String    @id @default(uuid())
+  agentId        String    @map("agent_id")
+  name           String
+  cronExpression String    @map("cron_expression")
+  taskType       String    @map("task_type")
+  taskPayload    Json?     @map("task_payload")
+  enabled        Boolean   @default(true)
+  lastRunAt      DateTime? @map("last_run_at")
+  nextRunAt      DateTime? @map("next_run_at")
+  runCount       Int       @default(0) @map("run_count")
+  errorCount     Int       @default(0) @map("error_count")
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, name])
+  @@map("scheduled_tasks")
+}
+
+model TaskQueueItem {
+  id           String    @id @default(uuid())
+  agentId      String    @map("agent_id")
+  taskType     String    @map("task_type")
+  payload      Json
+  priority     Int       @default(0)
+  status       String    @default("pending")
+  result       Json?
+  error        String?
+  attempts     Int       @default(0)
+  maxAttempts  Int       @default(3) @map("max_attempts")
+  scheduledFor DateTime  @default(now()) @map("scheduled_for")
+  startedAt    DateTime? @map("started_at")
+  completedAt  DateTime? @map("completed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@index([agentId, status])
+  @@map("task_queue_items")
+}
+
+// ============================================================================
+// HUMAN-IN-THE-LOOP APPROVALS
+// ============================================================================
+
+model ApprovalRequest {
+  id             String    @id @default(uuid())
+  agentId        String    @map("agent_id")
+  actionType     String    @map("action_type")
+  actionPayload  Json      @map("action_payload")
+  reason         String    @db.Text
+  contextSummary String?   @map("context_summary") @db.Text
+  status         String    @default("pending")
+  decisionBy     String?   @map("decision_by")
+  decisionReason String?   @map("decision_reason")
+  slackChannel   String?   @map("slack_channel")
+  slackMessageTs String?   @map("slack_message_ts")
+  expiresAt      DateTime  @map("expires_at")
+  decidedAt      DateTime? @map("decided_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([status, expiresAt])
+  @@index([agentId, status])
+  @@map("approval_requests")
+}
+
+// ============================================================================
+// INTER-AGENT MESSAGES
+// ============================================================================
+
+model AgentMessage {
+  id            String   @id @default(uuid())
+  fromAgentId   String   @map("from_agent_id")
+  toAgentId     String   @map("to_agent_id")
+  messageType   String   @map("message_type")
+  content       String   @db.Text
+  payload       Json?
+  correlationId String?  @map("correlation_id")
+  status        String   @default("pending")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([toAgentId, status])
+  @@index([correlationId])
+  @@map("agent_messages")
+}
+
+// ============================================================================
+// INTEGRATIONS
+// ============================================================================
+
+model IntegrationCredential {
+  id             String   @id @default(uuid())
+  agentId        String?  @map("agent_id")
+  provider       String
+  credentialType String   @map("credential_type")
+  accessToken    String?  @map("access_token") @db.Text
+  refreshToken   String?  @map("refresh_token") @db.Text
+  apiKey         String?  @map("api_key") @db.Text
+  expiresAt      DateTime? @map("expires_at")
+  scopes         String[]
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  agent Agent? @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, provider])
+  @@index([provider])
+  @@map("integration_credentials")
+}
+
+model WebhookEvent {
+  id           String   @id @default(uuid())
+  provider     String
+  eventType    String   @map("event_type")
+  payload      Json
+  headers      Json?
+  status       String   @default("pending")
+  processedAt  DateTime? @map("processed_at")
+  error        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([provider, status])
+  @@index([eventType])
+  @@map("webhook_events")
+}
+
+// ============================================================================
+// ROLE TEMPLATES & HIRING SYSTEM
+// ============================================================================
+
+model RoleTemplate {
+  id                String   @id @default(uuid())
+  role              String   // "SEO Engineer", "Backend Engineer", etc.
+  slug              String   @unique // "seo-engineer", "backend-engineer"
+  category          String   // "Marketing", "Engineering", "Operations"
+  team              String   // Team assignment
+  reportsTo         String?  @map("reports_to") // Default manager role
+  icon              String   // Emoji or icon identifier
+  description       String   @db.Text
+  baseSystemPrompt  String   @map("base_system_prompt") @db.Text
+  defaultTools      String[] @default([]) @map("default_tools")
+  requiredExpertise String[] @default([]) @map("required_expertise")
+  needsContainer    Boolean  @default(false) @map("needs_container") // Does this role need a Docker container?
+  priority          Int      @default(0) // Display order
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  backgrounds       Background[]
+  hiredAgents       HiredAgent[]
+
+  @@map("role_templates")
+}
+
+model Background {
+  id                String   @id @default(uuid())
+  templateId        String   @map("template_id")
+  name              String   // "Energy Sector Veteran", "Consumer Tech Innovator"
+  slug              String   // "energy-sector", "consumer-tech"
+  industry          String   // "energy", "consumer-tech"
+  description       String   @db.Text
+  personalityTraits String[] @default([]) @map("personality_traits") // ["analytical", "risk-averse"]
+  workingStyle      String   @map("working_style") @db.Text // Long-form description
+  promptModifiers   String   @map("prompt_modifiers") @db.Text // Added to system prompt
+  expertiseBoost    String[] @default([]) @map("expertise_boost") // Skills enhanced by this background
+  priority          Int      @default(0)
+  enabled           Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  template          RoleTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  hiredAgents       HiredAgent[]
+
+  @@unique([templateId, slug])
+  @@map("backgrounds")
+}
+
+model HiredAgent {
+  id              String   @id @default(uuid())
+  workspaceId     String?  @map("workspace_id") // For future multi-workspace support
+  agentId         String   @unique @map("agent_id")
+  templateId      String   @map("template_id")
+  backgroundId    String   @map("background_id")
+  generatedName   String   @map("generated_name") // AI-generated realistic name
+  generatedResume Json     @map("generated_resume") // Full resume object
+  customizations  Json?    // User tweaks to the agent
+  status          String   @default("active") // active, paused, terminated
+  hiredAt         DateTime @default(now()) @map("hired_at")
+  hiredBy         String?  @map("hired_by") // User ID who hired this agent
+  terminatedAt    DateTime? @map("terminated_at")
+
+  agent           Agent           @relation("AgentHiring", fields: [agentId], references: [id], onDelete: Cascade)
+  template        RoleTemplate    @relation(fields: [templateId], references: [id])
+  background      Background      @relation(fields: [backgroundId], references: [id])
+
+  @@index([workspaceId, status])
+  @@map("hired_agents")
+}

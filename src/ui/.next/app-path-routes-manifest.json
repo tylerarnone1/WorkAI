@@ -1,0 +1,16 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/api/agents/[id]/route": "/api/agents/[id]",
+  "/api/agents/hire/route": "/api/agents/hire",
+  "/api/auth/[...nextauth]/route": "/api/auth/[...nextauth]",
+  "/api/agents/route": "/api/agents",
+  "/api/resumes/generate/route": "/api/resumes/generate",
+  "/checkout/page": "/checkout",
+  "/hire/[slug]/page": "/hire/[slug]",
+  "/dashboard/page": "/dashboard",
+  "/hire/page": "/hire",
+  "/onboarding/page": "/onboarding",
+  "/login/page": "/login",
+  "/page": "/",
+  "/welcome/page": "/welcome"
+}

@@ -1,0 +1,16 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/agents/[id]/route": "app/api/agents/[id]/route.js",
+  "/api/agents/hire/route": "app/api/agents/hire/route.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/agents/route": "app/api/agents/route.js",
+  "/api/resumes/generate/route": "app/api/resumes/generate/route.js",
+  "/checkout/page": "app/checkout/page.js",
+  "/hire/[slug]/page": "app/hire/[slug]/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/hire/page": "app/hire/page.js",
+  "/onboarding/page": "app/onboarding/page.js",
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/welcome/page": "app/welcome/page.js"
+}

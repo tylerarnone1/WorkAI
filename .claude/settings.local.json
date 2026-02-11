@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx prisma generate:*)",
+      "Bash(npx tsc:*)",
+      "Bash(docker build:*)",
+      "Bash(bash:*)",
+      "Bash(docker rm:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout /t:*)",
+      "Bash(npm run db:seed:*)"
+    ]
+  }
+}
